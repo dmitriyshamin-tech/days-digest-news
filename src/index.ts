@@ -7,6 +7,7 @@ import { createServer } from "http";
 import { startScheduler } from "./scheduler.js";
 import { runCollection } from "./collector.js";
 import { sendReport } from "./report.js";
+import { sendWeeklyArticle } from "./weekly.js";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
@@ -25,6 +26,7 @@ const server = createServer(async (req, res) => {
         <p>Бот активен. Расписание: сбор в 04:00 и 06:00, отчёт в 07:00 (Киев)</p>
         <a href="/collect">▶ Запустить сбор новостей сейчас</a>
         <a href="/report">📨 Отправить дайджест в Telegram</a>
+        <a href="/weekly">📝 Сгенерировать статью недели</a>
         <a href="/status">📊 Статус</a>
       </body></html>
     `);
@@ -42,6 +44,13 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(`<html><body><p>📨 Дайджест отправлен в Telegram!</p><a href="/">← Назад</a></body></html>`);
     sendReport().then(() => console.log("[http] report sent")).catch(e => console.error("[http] report error:", e));
+    return;
+  }
+
+  if (url === "/weekly") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`<html><body><p>📝 Генерация статьи недели запущена... Проверьте Telegram через 1-2 минуты.</p><a href="/">← Назад</a></body></html>`);
+    sendWeeklyArticle().then(() => console.log("[http] weekly sent")).catch(e => console.error("[http] weekly error:", e));
     return;
   }
 
