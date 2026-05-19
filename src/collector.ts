@@ -2,7 +2,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import { insertNewsItem, urlExists } from "./storage.js";
 import { NEWS_SOURCES, type NewsSource } from "./sources.js";
 
-const anthropic = new Anthropic();
+let _anthropic: Anthropic | null = null;
+function getAnthropic() {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
 const LOOKBACK_HOURS = 48;
 const MAX_PER_SOURCE = 12;
 const BATCH_SIZE = 6;
@@ -127,7 +131,7 @@ const SYSTEM = `Ты аналитик новостей для e-commerce и ме
 
 async function summarize(articles: RawArticle[]): Promise<void> {
   const input = articles.map(a => ({ articleUrl: a.articleUrl, title: a.title, description: a.description.slice(0, 300) }));
-  const resp = await anthropic.messages.create({
+  const resp = await getAnthropic().messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 3000,
     system: SYSTEM,
