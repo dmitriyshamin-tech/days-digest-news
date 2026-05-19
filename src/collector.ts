@@ -154,8 +154,10 @@ async function summarize(articles: RawArticle[]): Promise<void> {
     messages: [{ role: "user", content: `Проанализируй:\n${JSON.stringify(input, null, 2)}` }],
   });
   const raw = resp.content[0].type === "text" ? resp.content[0].text : "[]";
-  const json = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
-  const results = JSON.parse(json) as Array<{ articleUrl: string; isRelevant: boolean; summaryRu: string; keyPoints: string[]; topicTags: string[] }>;
+  // Extract JSON array robustly — Claude sometimes adds text before/after
+  const match = raw.match(/\[[\s\S]*\]/);
+  if (!match) { console.warn("[collector] No JSON array in Claude response"); return; }
+  const results = JSON.parse(match[0]) as Array<{ articleUrl: string; isRelevant: boolean; summaryRu: string; keyPoints: string[]; topicTags: string[] }>;
 
   for (const r of results) {
     if (!r.isRelevant) continue;
