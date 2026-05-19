@@ -63,5 +63,6 @@ server.listen(PORT, () => {
   console.log(`   ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? "✅ SET (" + process.env.ANTHROPIC_API_KEY.slice(0,10) + "...)" : "❌ NOT SET"}`);
   console.log(`   TELEGRAM_BOT_TOKEN: ${process.env.TELEGRAM_BOT_TOKEN ? "✅ SET (" + process.env.TELEGRAM_BOT_TOKEN.slice(0,10) + "...)" : "❌ NOT SET"}`);
   console.log(`   TELEGRAM_CHAT_ID: ${process.env.TELEGRAM_CHAT_ID ? "✅ SET (" + process.env.TELEGRAM_CHAT_ID + ")" : "❌ NOT SET"}`);
+  console.log(`   TG_CHAT_ID: ${process.env.TG_CHAT_ID ? "✅ SET (" + process.env.TG_CHAT_ID + ")" : "❌ NOT SET"}`);
   startScheduler();
 });
