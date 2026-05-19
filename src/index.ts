@@ -1,4 +1,8 @@
-import "dotenv/config";
+// Load .env only in local development — Railway injects vars natively
+if (process.env.NODE_ENV !== "production") {
+  const { config } = await import("dotenv");
+  config();
+}
 import { createServer } from "http";
 import { startScheduler } from "./scheduler.js";
 import { runCollection } from "./collector.js";
