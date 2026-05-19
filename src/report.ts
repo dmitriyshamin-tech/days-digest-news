@@ -18,7 +18,9 @@ function articleBlock(item: NewsItem): string {
   let b = `\n📌 <a href="${item.articleUrl}">${esc(item.title)}</a>\n`;
   b += `<i>${esc(item.sourceName)}${date}</i>\n`;
   if (item.summaryRu) b += `${esc(item.summaryRu)}\n`;
-  for (const pt of item.keyPoints.slice(0, 3)) b += `• ${esc(pt)}\n`;
+  const [top, ...rest] = item.keyPoints.slice(0, 3);
+  if (top) b += `🔑 <b>${esc(top)}</b>\n`;
+  for (const pt of rest) b += `▸ ${esc(pt)}\n`;
   return b;
 }
 
