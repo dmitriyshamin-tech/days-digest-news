@@ -1,47 +1,58 @@
 let _chatId: string = "";
 
 async function resolveChatId(token: string): Promise<string> {
-  // 1. Try clean env vars
-  const fromEnv = process.env.TG_CHAT_ID ?? "";
-  if (fromEnv) return fromEnv;
-
-  // 2. Use cached discovered value
   if (_chatId) return _chatId;
 
-  // 3. Auto-discover via getUpdates (reads the latest message sent to the bot)
+  // Always try getUpdates first — Railway env vars are unreliable
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=10&timeout=0`);
+    const res = await fetch(
+      `https://api.telegram.org/bot${token}/getUpdates?limit=20&timeout=0`,
+      { signal: AbortSignal.timeout(8000) }
+    );
     const data = await res.json() as any;
-    if (data.ok && data.result?.length > 0) {
+    if (data.ok && Array.isArray(data.result) && data.result.length > 0) {
       for (const upd of [...data.result].reverse()) {
-        const id = upd.message?.chat?.id ?? upd.channel_post?.chat?.id;
+        const id = upd.message?.chat?.id
+          ?? upd.edited_message?.chat?.id
+          ?? upd.channel_post?.chat?.id;
         if (id) {
           _chatId = String(id);
-          console.log(`[telegram] Auto-discovered chat_id: ${_chatId}`);
+          console.log(`[telegram] chat_id from getUpdates: ${_chatId}`);
           return _chatId;
         }
       }
+    } else {
+      console.log(`[telegram] getUpdates empty or failed:`, JSON.stringify(data).slice(0, 200));
     }
   } catch (e: any) {
-    console.error("[telegram] getUpdates failed:", e?.message);
+    console.error("[telegram] getUpdates error:", e?.message);
   }
 
-  // 4. Last resort: fall back to whatever TELEGRAM_CHAT_ID has
-  return process.env.TELEGRAM_CHAT_ID ?? "";
+  // Fallback to env vars
+  const fromEnv = process.env.TG_CHAT_ID ?? process.env.TELEGRAM_CHAT_ID ?? "";
+  if (fromEnv) console.log(`[telegram] chat_id from env: ${fromEnv}`);
+  return fromEnv;
 }
 
 export async function sendMessage(text: string): Promise<void> {
   const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
-  if (!TOKEN) { console.log("[telegram] No bot token, skipping"); return; }
+  if (!TOKEN) { console.log("[telegram] No bot token"); return; }
 
   const CHAT = await resolveChatId(TOKEN);
-  if (!CHAT) { console.log("[telegram] No chat_id found, skipping"); return; }
+  if (!CHAT) { console.log("[telegram] No chat_id found"); return; }
 
-  console.log(`[telegram] Sending to chat_id: ${CHAT}`);
+  console.log(`[telegram] Sending to ${CHAT} ...`);
   const res = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: CHAT, text, parse_mode: "HTML", disable_web_page_preview: true }),
   });
-  if (!res.ok) console.error(`[telegram] Error ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const err = await res.text();
+    console.error(`[telegram] Error ${res.status}: ${err}`);
+    // If chat_id is wrong, reset cache so next call retries getUpdates
+    if (res.status === 400 && err.includes("chat not found")) {
+      _chatId = "";
+    }
+  }
 }
