@@ -36,7 +36,7 @@ function splitMessages(header: string, blocks: string[]): string[] {
 }
 
 export async function sendReport(): Promise<void> {
-  const items = listRecentItems(28);
+  const items = await listRecentItems(28);
   const date = new Date().toLocaleDateString("ru-RU", { timeZone: "Europe/Kiev", day: "2-digit", month: "2-digit", year: "numeric" });
 
   if (items.length === 0) {
@@ -77,6 +77,6 @@ export async function sendReport(): Promise<void> {
     await new Promise(r => setTimeout(r, 300));
   }
 
-  const deleted = deleteOldItems();
+  const deleted = await deleteOldItems();
   if (deleted > 0) console.log(`[report] Cleaned ${deleted} old items`);
 }

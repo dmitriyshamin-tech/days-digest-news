@@ -82,7 +82,7 @@ async function splitAndSend(text: string): Promise<void> {
 
 export async function sendWeeklyArticle(): Promise<void> {
   console.log("[weekly] Starting strategic analysis...");
-  const items = listRecentItems(168); // 7 days
+  const items = await listRecentItems(168); // 7 days
   const dateRange = kyivDateRange();
 
   if (items.length < 5) {

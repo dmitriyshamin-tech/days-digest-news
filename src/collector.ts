@@ -106,10 +106,16 @@ async function getArticles(src: NewsSource): Promise<RawArticle[]> {
   }
 
   const seen = new Set<string>();
-  return articles
-    .filter(a => a.publishedAt >= cutoff)
-    .filter(a => { if (seen.has(a.articleUrl) || urlExists(a.articleUrl)) return false; seen.add(a.articleUrl); return true; })
-    .slice(0, MAX_PER_SOURCE);
+  const filtered: RawArticle[] = [];
+  for (const a of articles) {
+    if (a.publishedAt < cutoff) continue;
+    if (seen.has(a.articleUrl)) continue;
+    if (await urlExists(a.articleUrl)) continue;
+    seen.add(a.articleUrl);
+    filtered.push(a);
+    if (filtered.length >= MAX_PER_SOURCE) break;
+  }
+  return filtered;
 }
 
 // ── Claude summarization ──────────────────────────────────────────────────────
@@ -155,7 +161,7 @@ async function summarize(articles: RawArticle[]): Promise<void> {
     if (!r.isRelevant) continue;
     const src = articles.find(a => a.articleUrl === r.articleUrl);
     if (!src) continue;
-    insertNewsItem({ ...src, summaryRu: r.summaryRu, keyPoints: r.keyPoints, topicTags: r.topicTags });
+    await insertNewsItem({ ...src, summaryRu: r.summaryRu, keyPoints: r.keyPoints, topicTags: r.topicTags });
   }
 }
 
