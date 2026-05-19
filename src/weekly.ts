@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { listRecentItems } from "./storage.js";
+import { listRecentItems, type NewsItem } from "./storage.js";
 import { sendMessage } from "./telegram.js";
 
-const MAX_ITEMS_FOR_ANALYSIS = 60;
+const MAX_ITEMS = 70;
 
 function kyivDateRange(): string {
   const opts: Intl.DateTimeFormatOptions = { timeZone: "Europe/Kiev", day: "2-digit", month: "2-digit", year: "numeric" };
@@ -11,86 +11,134 @@ function kyivDateRange(): string {
   return `${weekAgo.toLocaleDateString("ru-RU", opts)} — ${now.toLocaleDateString("ru-RU", opts)}`;
 }
 
-const WEEKLY_SYSTEM = `Ты senior-аналитик для e-commerce и мебельного бизнеса в Украине.
-Пишешь еженедельную аналитическую статью для Facebook/LinkedIn на основе новостей недели.
+function groupByCategory(items: NewsItem[]) {
+  const intl = items.filter(i => ["distillery","salsify","gwi","yahoo","minders","arxiv","mit","venturebeat","reuters"].includes(i.sourceId));
+  const ua = items.filter(i => ["cases","listex","uam","marketer","retailers","forbes_ua"].includes(i.sourceId));
+  return { intl, ua };
+}
 
-СТРУКТУРА (строго, с Telegram HTML-тегами):
-<b>🔥 ГЛАВНЫЙ ТРЕНД НЕДЕЛИ</b>
-[2-3 предложения — самый важный тренд с цифрами]
+const WEEKLY_SYSTEM = `Ты — стратегический аналитик рынка e-commerce, retail и digital для украинского бизнеса.
 
-<b>📊 КЛЮЧЕВЫЕ ЦИФРЫ НЕДЕЛИ</b>
-• [число/факт 1]
-• [число/факт 2]
-• [число/факт 3]
-• [число/факт 4]
+Твоя задача: написать глубокую аналитическую статью, которая:
+1. Анализирует причинно-следственные связи между мировыми трендами и украинским рынком
+2. Использует модель "США/Европа — это будущее Украины через 1-3 года"
+3. Находит аналогии: то, что произошло в США/Европе → что из этого уже есть в Украине → что придёт следующим
+4. Оценивает покупательскую способность и состояние потребительского рынка
+5. Делает конкретные прогнозы с обоснованием
 
-<b>🗓 ТОП-5 СОБЫТИЙ</b>
-<b>1.</b> [Заголовок события]
-[1 предложение — суть + почему важно для бизнеса]
+СТРУКТУРА СТАТЬИ (используй Telegram HTML: <b>, <i>, •):
 
-<b>2.</b> ...
+<b>🧭 ГЛАВНЫЙ ИНСАЙТ НЕДЕЛИ</b>
+[Одна ёмкая фраза — самое важное открытие этой недели для украинского рынка]
 
-<b>💡 ВЫВОД ДЛЯ БИЗНЕСА</b>
-[2-3 предложения — что делать, на что обратить внимание]
+<b>🌍 ЧТО ПРОИСХОДИТ В МИРЕ</b>
+[2-3 абзаца. Ключевые тренды из США/Европы с цифрами. Фокус: e-commerce, AI, retail, потребительское поведение, финансы]
 
-<i>#ecommerce #маркетинг #AIтренды #Украина #ретейл #диджитал</i>
+<b>🔗 ПРИЧИНА → СЛЕДСТВИЕ → УКРАИНА</b>
+Разбери 2-3 конкретные цепочки по шаблону:
+• <b>[Событие/тренд в США или Европе]</b> → [Что произошло дальше там] → <i>Для Украины: [прогноз или уже происходящее]</i>
 
-ПРАВИЛА:
-- ТОЛЬКО факты из предоставленных материалов, не придумывай
-- Цифры и проценты — только реальные из текстов статей
-- Запрещены фразы: "стоит отметить", "важно учитывать", "статья будет полезна"
-- Если цифр мало — фокус на качественных выводах
-- Пиши на русском языке`;
+<b>🇺🇦 УКРАИНСКИЙ РЫНОК СЕЙЧАС</b>
+[Анализ украинских новостей: покупательская способность, поведение потребителей, что меняется. Цифры если есть]
+
+<b>🔮 ПРОГНОЗ НА 3-12 МЕСЯЦЕВ</b>
+[3-4 конкретных прогноза для украинского e-commerce и retail. Обосновывай аналогиями из мирового опыта]
+
+<b>⚡ ЧТО ДЕЛАТЬ ПРЯМО СЕЙЧАС</b>
+[2-3 конкретных действия для бизнеса — не общие слова, а конкретные шаги]
+
+<i>#ecommerce #Украина #retail #маркетинг #тренды #прогноз #AIбизнес</i>
+
+ЖЁСТКИЕ ПРАВИЛА:
+— Только факты из предоставленных материалов. Не придумывай данные.
+— Цифры — только из текстов. Если цифр нет — качественный анализ без чисел.
+— Запрещено: "стоит отметить", "важно учитывать", "следует обратить внимание", "статья полезна"
+— Каждый абзац должен нести конкретную информацию или вывод
+— Связывай международные и украинские материалы в единую картину
+— Пиши на русском языке, стиль: аналитик-практик, не журналист`;
+
+async function splitAndSend(text: string): Promise<void> {
+  const LIMIT = 3900;
+  if (text.length <= LIMIT) {
+    await sendMessage(text);
+    return;
+  }
+  // Split at paragraph boundary near limit
+  const parts: string[] = [];
+  let remaining = text;
+  while (remaining.length > LIMIT) {
+    const chunk = remaining.slice(0, LIMIT);
+    const lastNewline = chunk.lastIndexOf("\n\n");
+    const cutAt = lastNewline > 2000 ? lastNewline : LIMIT;
+    parts.push(remaining.slice(0, cutAt).trimEnd() + "\n\n<i>↓ продолжение</i>");
+    remaining = remaining.slice(cutAt).trimStart();
+  }
+  parts.push(remaining);
+  for (const part of parts) {
+    await sendMessage(part);
+    await new Promise(r => setTimeout(r, 600));
+  }
+}
 
 export async function sendWeeklyArticle(): Promise<void> {
-  console.log("[weekly] Generating weekly article...");
+  console.log("[weekly] Starting strategic analysis...");
   const items = listRecentItems(168); // 7 days
   const dateRange = kyivDateRange();
 
-  if (items.length < 3) {
-    await sendMessage(`<b>📊 Дайджест недели — ${dateRange}</b>\n\nНедостаточно материалов (собрано: ${items.length}).`);
+  if (items.length < 5) {
+    await sendMessage(`<b>🧭 Аналитика недели — ${dateRange}</b>\n\nНедостаточно материалов для анализа (собрано: ${items.length}).`);
     return;
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) { console.error("[weekly] No ANTHROPIC_API_KEY"); return; }
 
-  // Compact summary for Claude
-  const input = items.slice(0, MAX_ITEMS_FOR_ANALYSIS).map(item => ({
-    source: item.sourceName,
-    title: item.title,
-    summary: item.summaryRu ?? "",
-    keyPoints: item.keyPoints.slice(0, 2),
+  const { intl, ua } = groupByCategory(items);
+
+  // Build structured input separating international and Ukrainian sources
+  const intlInput = intl.slice(0, 40).map(i => ({
+    geo: "INTERNATIONAL",
+    source: i.sourceName,
+    title: i.title,
+    summary: i.summaryRu ?? "",
+    points: i.keyPoints.slice(0, 2),
   }));
+
+  const uaInput = ua.slice(0, 30).map(i => ({
+    geo: "UKRAINE",
+    source: i.sourceName,
+    title: i.title,
+    summary: i.summaryRu ?? "",
+    points: i.keyPoints.slice(0, 2),
+  }));
+
+  const allInput = [...intlInput, ...uaInput];
+
+  console.log(`[weekly] Analyzing: ${intl.length} international + ${ua.length} Ukrainian items`);
 
   try {
     const anthropic = new Anthropic({ apiKey });
     const resp = await anthropic.messages.create({
       model: "claude-sonnet-4-5-20251001",
-      max_tokens: 2500,
+      max_tokens: 4000,
       system: WEEKLY_SYSTEM,
       messages: [{
         role: "user",
-        content: `Период: ${dateRange}\nСтатей для анализа: ${items.length}\n\nМатериалы недели:\n${JSON.stringify(input, null, 2)}`,
+        content: `Период анализа: ${dateRange}
+Материалов для анализа: ${items.length} (международных: ${intl.length}, украинских: ${ua.length})
+
+МАТЕРИАЛЫ НЕДЕЛИ:
+${JSON.stringify(allInput, null, 2)}`,
       }],
     });
 
     const article = resp.content[0].type === "text" ? resp.content[0].text.trim() : "";
-    if (!article) { console.error("[weekly] Empty response"); return; }
+    if (!article) { console.error("[weekly] Empty response from Claude"); return; }
 
-    const header = `<b>📊 ДАЙДЖЕСТ НЕДЕЛИ — ${dateRange}</b>\n(на основе ${items.length} материалов)\n\n`;
-    const full = header + article;
+    const header = `<b>🧭 СТРАТЕГИЧЕСКИЙ АНАЛИЗ НЕДЕЛИ</b>\n<i>${dateRange} · ${items.length} источников</i>\n\n`;
+    await splitAndSend(header + article);
 
-    // Split if longer than 4000 chars
-    if (full.length <= 4000) {
-      await sendMessage(full);
-    } else {
-      await sendMessage(full.slice(0, 3900) + "\n\n<i>— продолжение →</i>");
-      await new Promise(r => setTimeout(r, 500));
-      await sendMessage(full.slice(3900));
-    }
-
-    console.log(`[weekly] Article sent (${items.length} items, ${full.length} chars)`);
+    console.log(`[weekly] Done — ${items.length} items → ${article.length} chars`);
   } catch (e: any) {
     console.error("[weekly] Error:", e?.message);
   }
