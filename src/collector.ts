@@ -18,7 +18,7 @@ interface RawArticle {
   articleUrl: string;
   title: string;
   description: string;
-  publishedAt: number;
+  publishedAt: number | null;
 }
 
 // ── Parsers ───────────────────────────────────────────────────────────────────
@@ -56,7 +56,8 @@ function parseRSS(xml: string, src: NewsSource): RawArticle[] {
     const description = stripTags(cdata(descRaw)).slice(0, 400);
 
     const pubRaw = body.match(/<(?:pubDate|published|updated)[^>]*>([\s\S]*?)<\/(?:pubDate|published|updated)>/)?.[1]?.trim() ?? "";
-    const publishedAt = pubRaw ? parseDate(pubRaw) : Math.floor(Date.now() / 1000);
+    // Use null when date is missing — avoids fake "current time" that bypasses cutoff filter
+    const publishedAt = pubRaw ? parseDate(pubRaw) : null;
 
     results.push({ sourceId: src.id, sourceName: src.name, sourceUrl: src.baseUrl, articleUrl, title, description, publishedAt });
   }
@@ -108,7 +109,8 @@ async function getArticles(src: NewsSource): Promise<RawArticle[]> {
   const seen = new Set<string>();
   const filtered: RawArticle[] = [];
   for (const a of articles) {
-    if (a.publishedAt < cutoff) continue;
+    // Skip only if date is known AND too old. null = unknown date, treat as recent.
+    if (a.publishedAt !== null && a.publishedAt < cutoff) continue;
     if (seen.has(a.articleUrl)) continue;
     if (await urlExists(a.articleUrl)) continue;
     seen.add(a.articleUrl);
