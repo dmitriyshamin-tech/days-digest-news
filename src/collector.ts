@@ -122,13 +122,67 @@ async function getArticles(src: NewsSource): Promise<RawArticle[]> {
 
 // ── Claude summarization ──────────────────────────────────────────────────────
 
-const KEYWORDS = ["e-commerce","ecommerce","retail","marketing","digital","ai","artificial intelligence",
-  "machine learning","consumer","trend","2025","2026","sleep","mattress","wellness","furniture","мебель",
-  "finance","market","ukraine","ukrainian","україна","е-комерція","маркетинг","технолог","споживач"];
+const KEYWORDS = [
+  // e-commerce & retail
+  "e-commerce","ecommerce","retail","online store","shopify","amazon","marketplace","conversion","checkout",
+  "cart abandonment","product page","customer experience","omnichannel","fulfillment","supply chain",
+  // AI & tech
+  "ai","artificial intelligence","machine learning","generative ai","llm","automation","chatbot",
+  "ai overview","aeo","answer engine","ai mode","ai search","personalization",
+  // marketing & SEO
+  "marketing","digital marketing","seo","search engine","local seo","brand visibility","social proof",
+  "email marketing","content marketing","influencer","paid ads","ppc","cro","a/b test",
+  // furniture & home
+  "furniture","мебель","mattress","sleep","bedroom","home furnishing","interior","sofa","home decor",
+  "furniture retailer","furniture store","furniture market","wellness","bedding",
+  // finance & consumers
+  "finance","market","consumer","purchasing","spending","inflation","gdp","e-commerce market",
+  "buyer behavior","customer retention","loyalty","lifetime value",
+  // Ukraine
+  "ukraine","ukrainian","україна","є-комерція","маркетинг","технолог","споживач","rozetka","prom.ua",
+];
 
 function isRelevant(a: RawArticle): boolean {
   const text = `${a.title} ${a.description}`.toLowerCase();
   return KEYWORDS.some(k => text.includes(k));
+}
+
+// ── Topic deduplication ───────────────────────────────────────────────────────
+
+function significantWords(title: string): string[] {
+  return title.toLowerCase()
+    .split(/[\s\W]+/)
+    .filter(w => w.length > 3 && !["that","this","with","from","have","will","been","were","they","their",
+      "what","when","your","about","more","into","than","which","there","after","before"].includes(w));
+}
+
+function isSimilarTitle(a: string, b: string): boolean {
+  const wa = significantWords(a);
+  const wb = new Set(significantWords(b));
+  const shared = wa.filter(w => wb.has(w)).length;
+  // Similar if 3+ words match OR 50%+ of shorter title's words match
+  return shared >= 3 || (wa.length > 0 && shared / Math.min(wa.length, wb.size) >= 0.5);
+}
+
+async function deduplicateByTopic(articles: RawArticle[]): Promise<RawArticle[]> {
+  // Load titles stored in last 3 days to check against
+  const recent = await listRecentItems(72);
+  const recentTitles = recent.map(i => i.title);
+
+  const kept: RawArticle[] = [];
+  const keptTitles: string[] = [];
+
+  for (const a of articles) {
+    const isDupOfRecent = recentTitles.some(t => isSimilarTitle(a.title, t));
+    const isDupOfKept   = keptTitles.some(t => isSimilarTitle(a.title, t));
+    if (!isDupOfRecent && !isDupOfKept) {
+      kept.push(a);
+      keptTitles.push(a.title);
+    } else {
+      console.log(`[collector] Dup skipped: "${a.title.slice(0, 60)}"`);
+    }
+  }
+  return kept;
 }
 
 const SYSTEM = `Ты senior-аналитик для e-commerce и мебельного бизнеса в Украине. Пишешь для занятого руководителя.
@@ -189,7 +243,10 @@ export async function runCollection(): Promise<{ fetched: number; stored: number
     }
   }
 
-  const toSummarize = allNew.filter(isRelevant);
+  // Filter by keywords, then remove topic duplicates from last 3 days
+  const relevant = allNew.filter(isRelevant);
+  const toSummarize = await deduplicateByTopic(relevant);
+  console.log(`[collector] After dedup: ${relevant.length} relevant → ${toSummarize.length} unique topics`);
   let stored = 0;
 
   if (toSummarize.length > 0 && process.env.ANTHROPIC_API_KEY) {
