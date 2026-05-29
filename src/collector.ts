@@ -149,28 +149,33 @@ function isRelevant(a: RawArticle): boolean {
 
 // ── Topic deduplication ───────────────────────────────────────────────────────
 
+// Stop-words and year tokens excluded from similarity comparison
+const STOP = new Set(["that","this","with","from","have","will","been","were","they","their",
+  "what","when","your","about","more","into","than","which","there","after","before",
+  "2024","2025","2026","2027","how","why","what","best","top","new","using","use"]);
+
 function significantWords(title: string): string[] {
   return title.toLowerCase()
     .split(/[\s\W]+/)
-    .filter(w => w.length > 3 && !["that","this","with","from","have","will","been","were","they","their",
-      "what","when","your","about","more","into","than","which","there","after","before"].includes(w));
+    .filter(w => w.length >= 5 && !STOP.has(w));
 }
 
 function isSimilarTitle(a: string, b: string): boolean {
   const wa = significantWords(a);
   const wb = new Set(significantWords(b));
+  if (wa.length < 2 || wb.size < 2) return false; // too short to compare
   const shared = wa.filter(w => wb.has(w)).length;
-  // Similar if 3+ words match OR 50%+ of shorter title's words match
-  return shared >= 3 || (wa.length > 0 && shared / Math.min(wa.length, wb.size) >= 0.5);
+  // Require 4+ matching meaningful words — much stricter than before
+  return shared >= 4;
 }
 
 async function deduplicateByTopic(articles: RawArticle[]): Promise<RawArticle[]> {
-  // Load titles stored in last 3 days to check against
-  const recent = await listRecentItems(72);
+  const recent = await listRecentItems(48); // only last 2 days
   const recentTitles = recent.map(i => i.title);
 
   const kept: RawArticle[] = [];
   const keptTitles: string[] = [];
+  let skipped = 0;
 
   for (const a of articles) {
     const isDupOfRecent = recentTitles.some(t => isSimilarTitle(a.title, t));
@@ -179,9 +184,10 @@ async function deduplicateByTopic(articles: RawArticle[]): Promise<RawArticle[]>
       kept.push(a);
       keptTitles.push(a.title);
     } else {
-      console.log(`[collector] Dup skipped: "${a.title.slice(0, 60)}"`);
+      skipped++;
     }
   }
+  if (skipped > 0) console.log(`[collector] Topic dedup: skipped ${skipped} near-duplicates`);
   return kept;
 }
 
