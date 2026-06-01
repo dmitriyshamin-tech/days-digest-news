@@ -249,25 +249,43 @@ export async function runCollection(): Promise<{ fetched: number; stored: number
     }
   }
 
-  // Filter by keywords, then remove topic duplicates from last 3 days
+  console.log(`[collector] Pipeline: fetched=${fetched} total from ${NEWS_SOURCES.length} sources`);
+
+  // Filter by keywords
   const relevant = allNew.filter(isRelevant);
+  console.log(`[collector] Pipeline: keyword filter ${allNew.length} → ${relevant.length} relevant`);
+  if (relevant.length === 0) {
+    console.warn("[collector] ⚠ 0 articles passed keyword filter — check KEYWORDS or RSS feeds");
+  }
+
+  // Remove topic duplicates
   const toSummarize = await deduplicateByTopic(relevant);
-  console.log(`[collector] After dedup: ${relevant.length} relevant → ${toSummarize.length} unique topics`);
+  console.log(`[collector] Pipeline: dedup ${relevant.length} → ${toSummarize.length} unique topics`);
+  if (relevant.length > 0 && toSummarize.length === 0) {
+    console.warn("[collector] ⚠ Dedup removed ALL articles — threshold may be too strict!");
+  }
+
   let stored = 0;
 
-  if (toSummarize.length > 0 && process.env.ANTHROPIC_API_KEY) {
+  if (toSummarize.length === 0) {
+    console.log("[collector] Nothing to summarize, skipping Claude API");
+  } else if (!process.env.ANTHROPIC_API_KEY) {
+    console.warn("[collector] ⚠ ANTHROPIC_API_KEY not set — skipping summarization");
+  } else {
     for (let i = 0; i < toSummarize.length; i += BATCH_SIZE) {
+      const batch = toSummarize.slice(i, i + BATCH_SIZE);
       try {
-        await summarize(toSummarize.slice(i, i + BATCH_SIZE));
-        stored += Math.min(BATCH_SIZE, toSummarize.length - i);
+        await summarize(batch);
+        stored += batch.length;
+        console.log(`[collector] Summarized batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batch.length} articles`);
         await new Promise(r => setTimeout(r, 500));
       } catch (e: any) {
-        console.error(`[collector] Claude error: ${e?.message}`);
+        console.error(`[collector] Claude error on batch ${Math.floor(i / BATCH_SIZE) + 1}: ${e?.message}`);
         errors++;
       }
     }
   }
 
-  console.log(`[collector] Done — fetched:${fetched} stored:${stored} errors:${errors}`);
+  console.log(`[collector] ✅ Done — fetched:${fetched} relevant:${relevant.length} unique:${toSummarize.length} stored:${stored} errors:${errors}`);
   return { fetched, stored, errors };
 }

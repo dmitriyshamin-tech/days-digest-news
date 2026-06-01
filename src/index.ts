@@ -8,6 +8,7 @@ import { startScheduler } from "./scheduler.js";
 import { runCollection } from "./collector.js";
 import { sendReport } from "./report.js";
 import { sendWeeklyArticle } from "./weekly.js";
+import { listRecentItems } from "./storage.js";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
@@ -27,7 +28,8 @@ const server = createServer(async (req, res) => {
         <a href="/collect">▶ Запустить сбор новостей сейчас</a>
         <a href="/report">📨 Отправить дайджест в Telegram</a>
         <a href="/weekly">📝 Сгенерировать статью недели</a>
-        <a href="/status">📊 Статус</a>
+        <a href="/debug" style="background:#2d7a3a">🔍 Диагностика (состояние БД)</a>
+        <a href="/status">📊 Статус JSON</a>
       </body></html>
     `);
     return;
@@ -62,6 +64,33 @@ const server = createServer(async (req, res) => {
       telegram: !!process.env.TELEGRAM_BOT_TOKEN,
       anthropic: !!process.env.ANTHROPIC_API_KEY,
     }));
+    return;
+  }
+
+  if (url === "/debug") {
+    try {
+      const items24h = await listRecentItems(24);
+      const items7d  = await listRecentItems(168);
+      const bySource: Record<string, number> = {};
+      for (const it of items7d) bySource[it.sourceName] = (bySource[it.sourceName] ?? 0) + 1;
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({
+        kyivTime: new Date().toLocaleString("uk-UA", { timeZone: "Europe/Kiev" }),
+        items_last_24h: items24h.length,
+        items_last_7d: items7d.length,
+        last_article: items24h[0] ? { title: items24h[0].title, source: items24h[0].sourceName, collected: new Date(items24h[0].collectedAt * 1000).toISOString() } : null,
+        by_source_7d: bySource,
+        env: {
+          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ? "✅" : "❌",
+          TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN ? "✅" : "❌",
+          TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || "(not set)",
+          DATABASE_URL: process.env.DATABASE_URL ? "✅ (postgres)" : "❌ (sqlite fallback)",
+        },
+      }, null, 2));
+    } catch (e: any) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: e?.message }));
+    }
     return;
   }
 
